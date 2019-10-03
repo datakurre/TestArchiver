@@ -10,6 +10,7 @@ SUPPORTED_OUTPUT_FORMATS = (
         'xunit',
         'junit',
         'mocha-junit',
+        'pytest-junit',
         'mstest',
     )
 
@@ -415,6 +416,92 @@ class MochaJUnitOutputParser(XmlOutputParser):
         self._current_content = []
 
 
+class PytestJUnitOutputParser(XmlOutputParser):
+    def __init__(self, archiver):
+        super(PytestJUnitOutputParser, self).__init__(archiver)
+
+    def _report_test_run(self):
+        self.archiver.begin_test_run('pytest JUnit parser', None, 'pytest', False, None)
+
+    def _handle_suites_from_class_name(self, class_name):
+        next_suite_stack = class_name.split('.')
+        current_suites = self.archiver.current_suites()
+        next_suite_stack.insert(0, current_suites[0].name)
+        last_common_suite = current_suites[0]
+        for i in range(len(current_suites)):
+            if i >= len(next_suite_stack) or current_suites[i].name != next_suite_stack[i]:
+                self.archiver.end_suite()
+        for i in range(len(self.archiver.current_suites()), len(next_suite_stack)):
+            self.archiver.begin_suite(next_suite_stack[i])
+
+    def startElement(self, name, attrs):
+        if name in []:
+            self.excluding = True
+        elif self.excluding:
+            self.skipping_content = True
+        elif name == 'testsuite':
+            self._report_test_run()
+            suite_name = attrs.getValue('name') if 'name' in attrs.getNames() else DEFAULT_SUITE_NAME
+            self.archiver.begin_suite(suite_name)
+            errors = int(attrs.getValue('errors')) if 'errors' in attrs.getNames() else 0
+            failures = int(attrs.getValue('failures')) if 'failures' in attrs.getNames() else 0
+            suite_status = 'PASS' if errors + failures == 0 else 'FAIL'
+            elapsed = int(float(attrs.getValue('time'))*1000) if 'time' in attrs.getNames() else None
+            timestamp = attrs.getValue('timestamp') if 'timestamp' in attrs.getNames() else None
+            self.archiver.begin_status(suite_status, start_time=timestamp, elapsed=elapsed)
+        elif name == 'testcase':
+            class_name = attrs.getValue('classname')
+            self._handle_suites_from_class_name(class_name)
+            self.archiver.begin_test(attrs.getValue('name'))
+            elapsed = int(float(attrs.getValue('time'))*1000)
+            status = attrs.getValue('status') if 'status' in attrs.getNames() else 'PASS'
+            self.archiver.begin_status('PASS', elapsed=elapsed)
+        elif name == 'failure':
+            self.archiver.update_status('FAIL')
+            self.archiver.log_message('FAIL', attrs.getValue('message'))
+        elif name == 'error':
+            self.archiver.update_status('FAIL')
+            self.archiver.log_message('ERROR', attrs.getValue('message'))
+        elif name == 'skipped':
+            self.archiver.update_status('SKIPPED')
+            if 'message' in attrs.getNames():
+                self.archiver.log_message('INFO', attrs.getValue('message'))
+        elif name in ('system-out', 'system-err'):
+            pass
+        elif name == 'properties':
+            pass
+        elif name == 'property':
+            self.archiver.metadata(attrs.getValue('name'), attrs.getValue('value'))
+        else:
+            print("WARNING: begin unknown item '{}'".format(name))
+
+    def endElement(self, name):
+        if name in []:
+            self.excluding = False
+        elif self.excluding:
+            self.skipping_content = False
+        elif name == 'testsuite':
+            while self.archiver.current_suite():
+                self.archiver.end_suite()
+        elif name == 'testcase':
+            self.archiver.end_test()
+        elif name == 'failure':
+            self.archiver.log_message('FAIL', self.content())
+        elif name == 'error':
+            self.archiver.log_message('ERROR', self.content())
+        elif name == 'system-out':
+            self.archiver.log_message('INFO', self.content())
+        elif name == 'system-err':
+            self.archiver.log_message('ERROR', self.content())
+        elif name in ('properties', 'property'):
+            pass
+        elif name == 'skipped':
+            pass
+        else:
+            print("WARNING: ending unknown item '{}'".format(name))
+        self._current_content = []
+
+
 class MSTestOutputParser(XmlOutputParser):
     # Currently only inital support for unittests
 
@@ -506,6 +593,8 @@ def parse_xml(xml_file, output_format, db_engine, config):
         handler = JUnitOutputParser(archiver)
     elif output_format.lower() == 'mocha-junit':
         handler = MochaJUnitOutputParser(archiver)
+    elif output_format.lower() == 'pytest-junit':
+        handler = PytestJUnitOutputParser(archiver)
     elif output_format.lower() == 'mstest':
         handler = MSTestOutputParser(archiver)
     else:

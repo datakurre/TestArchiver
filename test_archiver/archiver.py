@@ -4,7 +4,7 @@ from datetime import datetime
 
 from database import PostgresqlDatabase, SQLiteDatabase
 
-ARCHIVER_VERSION = "0.15.0"
+ARCHIVER_VERSION = "0.16.0"
 
 SUPPORTED_TIMESTAMP_FORMATS = (
         "%Y%m%d %H:%M:%S.%f",
@@ -129,6 +129,8 @@ class FingerprintedItem(TestItem):
         return self.full_name
 
     def finish(self):
+        if not self.status:
+            self.status = self.execution_status
         self.calculate_fingerprints()
         self.propagate_fingerprints_status_and_elapsed_time()
         self.insert_results()
@@ -161,8 +163,13 @@ class FingerprintedItem(TestItem):
         else:
             if self.parent_item:
                 self.parent_item.subtree_fingerprints.append(self.fingerprint)
-                if self.parent_item.execution_status != 'FAIL':
+                if self.status == 'FAIL':
                     self.parent_item.execution_status = self.status
+                elif self.status == 'PASS' and self.parent_item.execution_status == 'SKIPPED':
+                    self.parent_item.execution_status = self.status
+                else:
+                    self.parent_item.execution_status = self.status
+
                 if self.elapsed_time:
                     if self.parent_item.elapsed_time_execution:
                         self.parent_item.elapsed_time_execution += self.elapsed_time
@@ -415,6 +422,13 @@ class Archiver:
         if self._current_item():
             return self._current_item().parent_suite()
         return None
+
+    def current_suites(self):
+        suites = []
+        for item in self.stack:
+            if item._item_type() == 'suite':
+                suites.append(item)
+        return suites
 
     def begin_test_run(self, archived_using, generated, generator, rpa, dryrun):
         test_run = TestRun(self, archived_using, generated, generator, rpa, dryrun)
