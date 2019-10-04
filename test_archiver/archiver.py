@@ -131,6 +131,8 @@ class FingerprintedItem(TestItem):
     def finish(self):
         if not self.status:
             self.status = self.execution_status
+        if not self.elapsed_time:
+            self.elapsed_time = self.elapsed_time_execution
         self.calculate_fingerprints()
         self.propagate_fingerprints_status_and_elapsed_time()
         self.insert_results()
