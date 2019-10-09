@@ -419,6 +419,7 @@ class MochaJUnitOutputParser(XmlOutputParser):
 class PytestJUnitOutputParser(XmlOutputParser):
     def __init__(self, archiver):
         super(PytestJUnitOutputParser, self).__init__(archiver)
+        self.in_setup_or_teardown = False
 
     def _report_test_run(self):
         self.archiver.begin_test_run('pytest JUnit parser', None, 'pytest', False, None)
@@ -428,17 +429,48 @@ class PytestJUnitOutputParser(XmlOutputParser):
         current_suites = self.archiver.current_suites()
         next_suite_stack.insert(0, current_suites[0].name)
         last_common_suite = current_suites[0]
+        common_suites = 0
         for i in range(len(current_suites)):
             if i >= len(next_suite_stack) or current_suites[i].name != next_suite_stack[i]:
-                self.archiver.end_suite()
-        for i in range(len(self.archiver.current_suites()), len(next_suite_stack)):
+                break
+            common_suites += 1
+        for i in range(common_suites, len(current_suites)):
+            self.archiver.end_suite()
+        for i in range(common_suites, len(next_suite_stack)):
             self.archiver.begin_suite(next_suite_stack[i])
+
+    def _parse_error_to_keyword(self, error, log_level='ERROR'):
+        if ':' in error:
+            exception, message = error.split(': ', 1)
+            self.archiver.keyword(exception, 'python', 'kw', 'FAIL', [message])
+        elif error == 'test setup failure':
+            self.archiver.keyword('failed by class setUp', 'python', 'kw', 'FAIL')
+            self.archiver.end_test()
+            if self.archiver.current_suite().setup_status == None:
+                self.archiver.begin_keyword('setUpClass', 'python', 'setup')
+                self.archiver.update_status('FAIL')
+                self.in_setup_or_teardown = True
+        elif error == 'test teardown failure':
+            self.archiver.end_test()
+            self.archiver.begin_keyword('tearDownClass', 'python', 'teardown')
+            self.archiver.update_status('FAIL')
+            self.in_setup_or_teardown = True
+        else:
+            self.archiver.log_message(log_level, error)
+
+    def _parse_stack_trace_to_keyword(self, trace):
+        if 'def tearDown(self' in trace:
+            pass
+        elif 'def setUp(self' in trace:
+            pass
 
     def startElement(self, name, attrs):
         if name in []:
             self.excluding = True
         elif self.excluding:
             self.skipping_content = True
+        elif name == 'testsuites':
+            pass
         elif name == 'testsuite':
             self._report_test_run()
             suite_name = attrs.getValue('name') if 'name' in attrs.getNames() else DEFAULT_SUITE_NAME
@@ -458,10 +490,10 @@ class PytestJUnitOutputParser(XmlOutputParser):
             self.archiver.begin_status('PASS', elapsed=elapsed)
         elif name == 'failure':
             self.archiver.update_status('FAIL')
-            self.archiver.log_message('FAIL', attrs.getValue('message'))
+            self._parse_error_to_keyword(attrs.getValue('message'), 'FAIL')
         elif name == 'error':
             self.archiver.update_status('FAIL')
-            self.archiver.log_message('ERROR', attrs.getValue('message'))
+            self._parse_error_to_keyword(attrs.getValue('message'), 'ERROR')
         elif name == 'skipped':
             self.archiver.update_status('SKIPPED')
             if 'message' in attrs.getNames():
@@ -480,10 +512,15 @@ class PytestJUnitOutputParser(XmlOutputParser):
             self.excluding = False
         elif self.excluding:
             self.skipping_content = False
+        elif name == 'testsuites':
+            pass
         elif name == 'testsuite':
             while self.archiver.current_suite():
                 self.archiver.end_suite()
         elif name == 'testcase':
+            if self.in_setup_or_teardown:
+                self.archiver.end_keyword()
+                self.in_setup_or_teardown = False
             self.archiver.end_test()
         elif name == 'failure':
             self.archiver.log_message('FAIL', self.content())

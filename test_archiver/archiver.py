@@ -507,7 +507,8 @@ class Archiver:
         return build_number
 
     def begin_suite(self, name):
-        self.stack.append(Suite(self, name, 'repo'))
+        suite = Suite(self, name, 'repo')
+        self.stack.append(suite)
 
     def end_suite(self, attributes=None):
         if attributes:
@@ -517,7 +518,8 @@ class Archiver:
         self.stack.pop().finish()
 
     def begin_test(self, name, class_name=None):
-        self.stack.append(Test(self, name, class_name))
+        test = Test(self, name, class_name)
+        self.stack.append(test)
 
     def end_test(self, attributes=None):
         if attributes:
