@@ -345,9 +345,19 @@ class Keyword(FingerprintedItem):
             stat_object = self.archiver.keyword_statistics[self.fingerprint]
             stat_object['calls'] += 1
             if self.elapsed_time:
-                stat_object['max_execution_time'] = max(stat_object['max_execution_time'], self.elapsed_time)
-                stat_object['min_execution_time'] = min(stat_object['min_execution_time'], self.elapsed_time)
-                stat_object['cumulative_execution_time'] += self.elapsed_time
+                if stat_object['max_execution_time'] == None:
+                    stat_object['max_execution_time'] = self.elapsed_time
+                else:stat_object['max_execution_time'] = max(stat_object['max_execution_time'],
+                                                           self.elapsed_time)
+                if stat_object['min_execution_time'] == None:
+                    stat_object['min_execution_time'] = self.elapsed_time
+                else:
+                    stat_object['min_execution_time'] = min(stat_object['min_execution_time'],
+                                                           self.elapsed_time)
+                if stat_object['cumulative_execution_time'] == None:
+                    stat_object['cumulative_execution_time'] = self.elapsed_time
+                else:
+                    stat_object['cumulative_execution_time'] += self.elapsed_time
             stat_object['max_call_depth'] = max(stat_object['max_call_depth'], self.kw_call_depth)
         else:
             self.archiver.keyword_statistics[self.fingerprint] = {
